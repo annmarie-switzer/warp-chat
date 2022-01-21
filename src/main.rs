@@ -27,36 +27,30 @@ async fn main() {
 
     pretty_env_logger::init();
 
-    // Instantiates the Users Arc
     let users = Users::default();
-
-    // A custom filter that sends `Users` along with the request.
     let users = warp::any().map(move || users.clone());
 
-    // GET /chat -> websocket upgrade
     let chat = warp::path("chat")
-        // The `ws()` filter will prepare the Websocket handshake.
         .and(warp::ws())
+        .and(warp::path::param::<u32>())
         .and(users)
-        .map(|ws: warp::ws::Ws, users| {
-            // And then our closure will be called when it completes.
-            ws.on_upgrade(move |socket| user_connected(socket, users))
-        });
+        .map(|ws: warp::ws::Ws, room_id, users| 
+            ws.on_upgrade(move |socket| user_connected(socket, room_id, users))
+        );
 
-    // GET / -> index html
     let index = warp::path::end().map(|| warp::reply::html(INDEX_HTML));
 
-    // Compose all routes into a single API using `or`.
     let routes = index.or(chat);
-    
+
     warp::serve(routes).run(([127, 0, 0, 1], 3030)).await;
 }
 
-async fn user_connected(ws: WebSocket, users: Users) {
+async fn user_connected(ws: WebSocket, room_id: u32, users: Users) {
     // Use a counter to assign a new unique ID for this user.
-    let id = NEXT_USER_ID.fetch_add(1, Ordering::Relaxed);
+    let user_id = NEXT_USER_ID.fetch_add(1, Ordering::Relaxed);
 
-    eprintln!("New chat user - id: {id}");
+    eprintln!("Room number: {room_id}");
+    eprintln!("New chat user: {user_id}");
 
     // Split the socket into a sender and receive of messages.
     let (mut user_ws_tx, mut user_ws_rx) = ws.split();
@@ -78,7 +72,7 @@ async fn user_connected(ws: WebSocket, users: Users) {
     });
 
     // Save the sender in our list of connected users.
-    users.write().await.insert(id, tx);
+    users.write().await.insert(user_id, tx);
 
     // Return a `Future` that is basically a state machine managing
     // this specific user's connection.
@@ -89,26 +83,26 @@ async fn user_connected(ws: WebSocket, users: Users) {
         let msg = match result {
             Ok(msg) => msg,
             Err(e) => {
-                eprintln!("websocket error(uid={id}): {e}");
+                eprintln!("websocket error(uid={user_id}): {e}");
                 break;
             }
         };
-        user_message(id, msg, &users).await;
+        user_message(user_id, msg, &users).await;
     }
 
     // user_ws_rx stream will keep processing as long as the user stays
     // connected. Once they disconnect, then...
-    user_disconnected(id, &users).await;
+    user_disconnected(user_id, &users).await;
 }
 
-async fn user_disconnected(id: usize, users: &Users) {
-    eprintln!("good bye user: {id}");
+async fn user_disconnected(user_id: usize, users: &Users) {
+    eprintln!("good bye user: {user_id}");
 
     // Stream closed up, so remove from the user list
-    users.write().await.remove(&id);
+    users.write().await.remove(&user_id);
 }
 
-async fn user_message(id: usize, msg: Message, users: &Users) {
+async fn user_message(user_id: usize, msg: Message, users: &Users) {
     // Skip any non-Text messages...
     let msg = if let Ok(s) = msg.to_str() {
         s
@@ -116,11 +110,11 @@ async fn user_message(id: usize, msg: Message, users: &Users) {
         return;
     };
 
-    let new_msg = format!("<User#{id}>: {msg}");
+    let new_msg = format!("<User#{user_id}>: {msg}");
 
     // New message from this user, send it to everyone else (except same uid)...
     for (&uid, tx) in users.read().await.iter() {
-        if id != uid {
+        if user_id != uid {
             if let Err(_disconnected) = tx.send(Message::text(new_msg.clone())) {
                 // The tx is disconnected, our `user_disconnected` code
                 // should be happening in another task, nothing more to
@@ -134,6 +128,7 @@ static INDEX_HTML: &str = r#"<!DOCTYPE html>
 <html lang="en">
     <head>
         <title>Warp Chat</title>
+        <link rel="icon" href="data:,">
     </head>
     <body>
         <h1>Warp chat</h1>
@@ -145,7 +140,7 @@ static INDEX_HTML: &str = r#"<!DOCTYPE html>
         <script type="text/javascript">
         const chat = document.getElementById('chat');
         const text = document.getElementById('text');
-        const uri = 'ws://' + location.host + '/chat';
+        const uri = `ws://${location.host}/chat/${1}`;
         const ws = new WebSocket(uri);
         function message(data) {
             const line = document.createElement('p');
