@@ -11,7 +11,7 @@ use warp::Filter;
 
 struct User {
     id: usize,
-    room: usize,
+    room: String,
     tx: mpsc::UnboundedSender<Message>,
 }
 
@@ -32,37 +32,53 @@ async fn main() {
     // custom filter
     let users = warp::any().map(move || users.clone());
 
-    // GET `/chat/:room_id`
-    // Called from the browser when the page loads
-    let chat = warp::path("chat")
-        .and(warp::ws())
-        .and(warp::path::param::<usize>())
+    // Instantiates a websocket connection.
+    // Called from the browser when chat.html is loaded.
+    let websocket = warp::path!("websocket" / String)
         .and(users)
-        .map(|ws: warp::ws::Ws, room_id, users| {
-            ws.on_upgrade(move |socket| user_connected(socket, room_id, users))
+        .and(warp::ws())
+        .map(|room_id: String, users, ws: warp::ws::Ws| {
+            ws.on_upgrade(move |socket| user_connected(socket, room_id.clone(), users))
         });
 
-    // GET `/:room_id`
-    let index = warp::path!(usize).map(|_| warp::reply::html(INDEX_HTML));
+    // GET `/chat/:room_id`
+    let chat = warp::path("chat").and(warp::fs::file("client/chat.html"));
 
-    let routes = index.or(chat);
+    // GET `/`
+    let index = warp::path::end().and(warp::fs::file("client/index.html"));
 
-    warp::serve(routes).run(([127, 0, 0, 1], 3030)).await;
+    let api = index.or(chat).or(websocket);
+
+    warp::serve(api).run(([127, 0, 0, 1], 3030)).await;
 }
 
-async fn user_connected(ws: WebSocket, room_id: usize, users: Users) {
+async fn user_connected(ws: WebSocket, room_id: String, users: Users) {
+    // create and store the new user
     let user_id = NEXT_USER_ID.fetch_add(1, Ordering::Relaxed);
 
     eprintln!("New chat user: {user_id} added to room: {room_id}");
 
-    let (mut user_ws_tx, mut user_ws_rx) = ws.split();
-
+    // "An unbounded channel handles buffering and flushing of messages to the websocket."
+    // Create a channel specific to this user?
     let (tx, rx) = mpsc::unbounded_channel();
     let mut rx = UnboundedReceiverStream::new(rx);
 
+    let new_user = User {
+        id: user_id,
+        room: room_id.clone(),
+        tx,
+    };
+
+    users.write().await.push(new_user);
+
+    // Split the websocket into individual sender/receiver objects
+    let (mut ws_sender, mut ws_receiver) = ws.split();
+    
+    // When the user's stream receives a message,
+    // push it to the websocket
     tokio::task::spawn(async move {
         while let Some(message) = rx.next().await {
-            user_ws_tx
+            ws_sender
                 .send(message)
                 .unwrap_or_else(|e| {
                     eprintln!("websocket send error: {e}");
@@ -71,17 +87,9 @@ async fn user_connected(ws: WebSocket, room_id: usize, users: Users) {
         }
     });
 
-    let new_user = User {
-        id: user_id,
-        room: room_id,
-        tx,
-    };
-
-    users.write().await.push(new_user);
-
-    // Every time the user sends a message,
-    // broadcast it to all other users in the same room.
-    while let Some(result) = user_ws_rx.next().await {
+    // When the websocket receives a message,
+    // broadcast it to the other users.
+    while let Some(result) = ws_receiver.next().await {
         let msg = match result {
             Ok(msg) => msg,
             Err(e) => {
@@ -90,18 +98,14 @@ async fn user_connected(ws: WebSocket, room_id: usize, users: Users) {
             }
         };
 
-        user_message(user_id, msg, &users, room_id).await;
+        user_message(user_id, msg, &users, &room_id).await;
     }
 
+    //
     user_disconnected(user_id, &users).await;
 }
 
-async fn user_disconnected(user_id: usize, users: &Users) {
-    eprintln!("good bye user: {user_id}");
-    users.write().await.retain(|u| u.id != user_id);
-}
-
-async fn user_message(user_id: usize, msg: Message, users: &Users, room_id: usize) {
+async fn user_message(user_id: usize, msg: Message, users: &Users, room_id: &str) {
     let msg = if let Ok(s) = msg.to_str() {
         s
     } else {
@@ -110,9 +114,8 @@ async fn user_message(user_id: usize, msg: Message, users: &Users, room_id: usiz
 
     let new_msg = format!("<User#{user_id}>: {msg}");
 
-    // New message from this user, send it to everyone else (except same uid)...
     for user in users.read().await.iter() {
-        if user.id != user_id && user.room == room_id {
+        if user.id != user_id && user.room == room_id.to_string() {
             if let Err(_disconnected) = user.tx.send(Message::text(new_msg.clone())) {
                 // The tx is disconnected, our `user_disconnected` code
                 // should be happening in another task, nothing more to
@@ -122,55 +125,63 @@ async fn user_message(user_id: usize, msg: Message, users: &Users, room_id: usiz
     }
 }
 
-static INDEX_HTML: &str = r#"
-<!DOCTYPE html>
-<html lang="en">
-    <head>
-        <title>Warp Chat</title>
-        <link rel="icon" href="data:,">
-    </head>
-    <body>
-        <h1>Warp chat</h1>
-        
-        <div id="chat">
-            <p><em>Connecting...</em></p>
-        </div>
-        
-        <input type="text" id="text" />
-        
-        <button type="button" id="send">Send</button>
-        
-        <script type="text/javascript">
-            const chat = document.getElementById('chat');
-            const text = document.getElementById('text');
-            const uri = `ws://${location.host}/chat${location.pathname}`;
-            const ws = new WebSocket(uri);
-            
-            function message(data) {
-                const line = document.createElement('p');
-                line.innerText = data;
-                chat.appendChild(line);
-            }
-            
-            ws.onopen = function() {
-                chat.innerHTML = '<p><em>Connected!</em></p>';
-            };
-            
-            ws.onmessage = function(msg) {
-                message(msg.data);
-            };
-            
-            ws.onclose = function() {
-                chat.getElementsByTagName('em')[0].innerText = 'Disconnected!';
-            };
-            
-            send.onclick = function() {
-                const msg = text.value;
-                ws.send(msg);
-                text.value = '';
-                message('<You>: ' + msg);
-            };
-        </script>
-    </body>
-</html>
-"#;
+async fn user_disconnected(user_id: usize, users: &Users) {
+    eprintln!("good bye user: {user_id}");
+    // TODO - use a hashmap? {user_id: {room, tx}}
+    users.write().await.retain(|u| u.id != user_id);
+}
+
+// let index = warp::path!(usize).map(|_| warp::reply::html(INDEX_HTML));
+
+// static INDEX_HTML: &str = r#"
+// <!DOCTYPE html>
+// <html lang="en">
+//     <head>
+//         <title>Warp Chat</title>
+//         <link rel="icon" href="data:,">
+//     </head>
+//     <body>
+//         <h1>Warp chat</h1>
+
+//         <div id="chat">
+//             <p><em>Connecting...</em></p>
+//         </div>
+
+//         <input type="text" id="text" />
+
+//         <button type="button" id="send">Send</button>
+
+//         <script type="text/javascript">
+//             const chat = document.getElementById('chat');
+//             const text = document.getElementById('text');
+//             const uri = `ws://${location.host}/chat${location.pathname}`;
+//             const ws = new WebSocket(uri);
+
+//             function message(data) {
+//                 const line = document.createElement('p');
+//                 line.innerText = data;
+//                 chat.appendChild(line);
+//             }
+
+//             ws.onopen = function() {
+//                 chat.innerHTML = '<p><em>Connected!</em></p>';
+//             };
+
+//             ws.onmessage = function(msg) {
+//                 message(msg.data);
+//             };
+
+//             ws.onclose = function() {
+//                 chat.getElementsByTagName('em')[0].innerText = 'Disconnected!';
+//             };
+
+//             send.onclick = function() {
+//                 const msg = text.value;
+//                 ws.send(msg);
+//                 text.value = '';
+//                 message('<You>: ' + msg);
+//             };
+//         </script>
+//     </body>
+// </html>
+// "#;
