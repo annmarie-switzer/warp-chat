@@ -42,7 +42,10 @@ async fn main() {
         });
 
     // GET `/chat/:room_id`
-    let chat = warp::path("chat").and(warp::fs::file("client/chat.html"));
+    let chat = warp::path!("chat" / String)
+        .map(|_| ())
+        .untuple_one()
+        .and(warp::fs::file("client/chat.html"));
 
     // GET `/`
     let index = warp::path::end().and(warp::fs::file("client/index.html"));
@@ -53,16 +56,12 @@ async fn main() {
 }
 
 async fn user_connected(ws: WebSocket, room_id: String, users: Users) {
-    // create and store the new user
-    let user_id = NEXT_USER_ID.fetch_add(1, Ordering::Relaxed);
-
-    eprintln!("New chat user: {user_id} added to room: {room_id}");
-
     // "An unbounded channel handles buffering and flushing of messages to the websocket."
-    // Create a channel specific to this user?
     let (tx, rx) = mpsc::unbounded_channel();
     let mut rx = UnboundedReceiverStream::new(rx);
 
+    // create and store a new `User`
+    let user_id = NEXT_USER_ID.fetch_add(1, Ordering::Relaxed);
     let new_user = User {
         id: user_id,
         room: room_id.clone(),
@@ -71,11 +70,10 @@ async fn user_connected(ws: WebSocket, room_id: String, users: Users) {
 
     users.write().await.push(new_user);
 
-    // Split the websocket into individual sender/receiver objects
+    eprintln!("New chat user: {user_id} added to room: {room_id}");
+
     let (mut ws_sender, mut ws_receiver) = ws.split();
-    
-    // When the user's stream receives a message,
-    // push it to the websocket
+
     tokio::task::spawn(async move {
         while let Some(message) = rx.next().await {
             ws_sender
@@ -101,7 +99,6 @@ async fn user_connected(ws: WebSocket, room_id: String, users: Users) {
         user_message(user_id, msg, &users, &room_id).await;
     }
 
-    //
     user_disconnected(user_id, &users).await;
 }
 
