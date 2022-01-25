@@ -235,7 +235,7 @@
 
             ws.onopen = () => {
                 connectionDiv.innerHTML = 'CONNECTED';
-                connectionDiv.classList.toggle('connected');
+                connectionDiv.classList.add('connected');
                 roomNameDiv.innerHTML = `${capitalize(roomId)} Chat`;
                 roomNameDiv.classList.add(`${roomId}`);
                 input.classList.add(`${roomId}`);
@@ -244,7 +244,8 @@
 
             ws.onclose = () => {
                 connectionDiv.innerText = 'DISCONNECTED';
-                connectionDiv.classList.toggle('connected');
+                connectionDiv.classList.remove('connected');
+                connectionDiv.classList.add('disconnected');
             };
 
             ws.onmessage = (msg) => {
