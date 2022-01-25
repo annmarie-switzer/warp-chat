@@ -5,58 +5,257 @@
         <link rel="icon" href="data:," />
 
         <style>
+            @import url('https://fonts.googleapis.com/css2?family=Roboto+Condensed&display=swap');
+
+            :root {
+                --red: #ae0001;
+                --gold: #eeba30;
+                --green: #2a623d;
+                --silver: #aaaaaa;
+                --blue: #376da0;
+                --black: #000000;
+                --fg: #ddd;
+            }
+
+            html,
             body {
+                margin: 0;
+                padding: 0;
+                height: 100vh;
+                width: 100vw;
+                background-color: #1f1f1f;
+                color: var(--fg);
+                font-family: 'Roboto Condensed', sans-serif;
+                font-size: 16px;
+                display: flex;
+            }
+
+            #room-name.gryffindor {
+                color: var(--red);
+            }
+
+            #room-name.slytherin {
+                color: var(--green);
+            }
+
+            #room-name.hufflepuff {
+                color: var(--gold);
+            }
+
+            #room-name.ravenclaw {
+                color: var(--blue);
+            }
+
+            input.gryffindor {
+                border-color: var(--red);
+            }
+
+            input.slytherin {
+                border-color: var(--green);
+            }
+
+            input.hufflepuff {
+                border-color: var(--gold);
+            }
+
+            input.ravenclaw {
+                border-color: var(--blue);
+            }
+
+            button.gryffindor,
+            .message.gryffindor {
+                background-color: var(--red);
+            }
+
+            button.slytherin,
+            .message.slytherin {
+                background-color: var(--green);
+            }
+
+            button.hufflepuff,
+            .message.hufflepuff {
+                background-color: var(--gold);
+            }
+
+            .message.hufflepuff {
+                color: #000;
+            }
+
+            button.ravenclaw,
+            .message.ravenclaw {
+                background-color: var(--blue);
+            }
+
+            #page-container {
+                flex: auto;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+            }
+
+            #page-title {
+                padding: 0.75rem 1.5rem;
+                box-sizing: border-box;
+                width: 100%;
+                font-size: 1.5rem;
+                display: flex;
+                align-items: center;
+            }
+
+            #main {
+                flex: auto;
+                width: 100%;
+                display: flex;
+                flex-direction: column;
+            }
+
+            #messages {
+                height: 100%;
+                display: flex;
+                flex-direction: column;
+                gap: 0.75rem;
+                padding: 2rem;
+            }
+
+            .message {
+                width: 30%;
+                border-radius: 0.5rem;
+                padding: 1rem;
+                word-break: break-word;
+            }
+
+            .my-message {
                 background-color: #303030;
-                color: #dddddd;
+                margin-left: auto;
+            }
+
+            #bottom {
+                padding: 1.5rem 1rem;
+                box-sizing: border-box;
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 2rem;
+                background-color: #303030;
+            }
+
+            #form {
+                width: 100%;
+                height: 100%;
+                display: flex;
+                align-items: center;
+                gap: 0.5rem;
+            }
+
+            #connection.connected {
+                color: #1eaf1e;
+            }
+
+            #connection.disconnected {
+                color: red;
+            }
+
+            input {
+                appearance: none;
+                outline: 0;
+                border: solid 2px currentColor;
+                border-radius: 0.25rem;
+                font-size: inherit;
+                font-family: inherit;
+                color: var(--fg);
+                padding: 0.75rem;
+                box-sizing: border-box;
+                background-color: transparent;
+                width: 100%;
+                height: 100%;
+            }
+
+            button {
+                border: 0;
+                font-size: inherit;
+                font-family: inherit;
+                color: #000 !important;
+                border-radius: 0.25rem;
+                height: 100%;
+                width: 5rem;
+                padding: 0.75rem;
+                cursor: pointer;
+            }
+
+            button:active {
+                filter: brightness(0.8);
             }
         </style>
     </head>
     <body>
-        <h1>Warp chat</h1>
-
-        <h3 id="room-name"></h3>
-
-        <div id="chat">
-            <p><em>Connecting...</em></p>
+        <div id="page-container">
+            <div id="page-title">
+                <div id="room-name"></div>
+            </div>
+            <div id="main">
+                <div id="messages"></div>
+                <div id="bottom">
+                    <div id="connection">CONNECTING...</div>
+                    <div id="form">
+                        <input type="text" id="text-input" />
+                        <button type="button" id="submit-button">Send</button>
+                    </div>
+                </div>
+            </div>
         </div>
 
-        <input type="text" id="text" />
-
-        <button type="button" id="send">Send</button>
-
         <script type="text/javascript">
-            const roomName = document.getElementById('room-name');
-            const chat = document.getElementById('chat');
-            const text = document.getElementById('text');
+            const capitalize = (str) => {
+                return str.charAt(0).toUpperCase() + str.slice(1);
+            };
+
+            const roomNameDiv = document.getElementById('room-name');
+            const connectionDiv = document.getElementById('connection');
+            const input = document.getElementById('text-input');
+            const submit = document.getElementById('submit-button');
 
             const roomId = location.pathname.split('/').at(-1);
+
             const uri = `ws://${location.host}/websocket/${roomId}`;
             const ws = new WebSocket(uri);
 
-            const message = (data) => {
-                const line = document.createElement('p');
-                line.innerText = data;
-                chat.appendChild(line);
-            }
+            const appendMessage = (str, self) => {
+                const line = document.createElement('div');
+                line.innerText = str;
+                line.classList.add('message');
 
-            ws.onopen = () => {
-                chat.innerHTML = '<p><em>Connected!</em></p>';
-                roomName.innerHTML = `Welcome to ${roomId} chat!`;
+                if (self) {
+                    line.classList.add('my-message');
+                } else {
+                    line.classList.add(`${roomId}`);
+                }
+
+                messages.appendChild(line);
             };
 
-            ws.onmessage = (msg) => {
-                message(msg.data);
+            ws.onopen = () => {
+                connectionDiv.innerHTML = 'CONNECTED';
+                connectionDiv.classList.toggle('connected');
+                roomNameDiv.innerHTML = `${capitalize(roomId)} Chat`;
+                roomNameDiv.classList.add(`${roomId}`);
+                input.classList.add(`${roomId}`);
+                submit.classList.add(`${roomId}`);
             };
 
             ws.onclose = () => {
-                chat.getElementsByTagName('em')[0].innerText = 'Disconnected!';
+                connectionDiv.innerText = 'DISCONNECTED';
+                connectionDiv.classList.toggle('connected');
             };
 
-            send.onclick = () => {
-                const msg = text.value;
+            ws.onmessage = (msg) => {
+                appendMessage(msg.data, (self = false));
+            };
+
+            submit.onclick = () => {
+                const msg = input.value;
                 ws.send(msg);
-                text.value = '';
-                message('<You>: ' + msg);
+                appendMessage(msg, (self = true));
+                input.value = '';
             };
         </script>
     </body>

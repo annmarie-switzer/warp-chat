@@ -106,7 +106,7 @@ async fn user_message(user_id: usize, msg: Message, users: &Users, room_id: &str
         return;
     };
 
-    let new_msg = format!("<User#{user_id}>: {msg}\n");
+    let new_msg = format!("{user_id}: {msg}\n");
 
     write_to_file(room_id, &new_msg);
 
