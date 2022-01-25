@@ -121,6 +121,11 @@ async fn user_message(user_id: usize, msg: Message, users: &Users, room_id: &str
     }
 }
 
+async fn user_disconnected(user_id: usize, users: &Users) {
+    eprintln!("goodbye user: {user_id}");
+    users.write().await.remove(&user_id);
+}
+
 fn write_to_file(room_id: &str, message: &str) {
     let file_name = format!("{room_id}.log");
     let mut reader: &[u8] = message.as_bytes();
@@ -132,9 +137,4 @@ fn write_to_file(room_id: &str, message: &str) {
         .unwrap();
 
     io::copy(&mut reader, &mut file).unwrap();
-}
-
-async fn user_disconnected(user_id: usize, users: &Users) {
-    eprintln!("goodbye user: {user_id}");
-    users.write().await.remove(&user_id);
 }
