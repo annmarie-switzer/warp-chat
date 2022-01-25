@@ -1,10 +1,11 @@
 use futures_util::{SinkExt, StreamExt, TryFutureExt};
 use std::collections::HashMap;
-use std::env;
+use std::fs::OpenOptions;
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc,
 };
+use std::{env, io};
 use tokio::sync::{mpsc, RwLock};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use warp::ws::{Message, WebSocket};
@@ -59,17 +60,6 @@ async fn user_connected(ws: WebSocket, room_id: String, users: Users) {
     let (tx, rx) = mpsc::unbounded_channel();
     let mut rx = UnboundedReceiverStream::new(rx);
 
-    let user_id = NEXT_USER_ID.fetch_add(1, Ordering::Relaxed);
-
-    let user_info = UserInfo {
-        room: room_id.clone(),
-        tx,
-    };
-
-    users.write().await.insert(user_id, user_info);
-
-    eprintln!("New chat user: {user_id} added to room: {room_id}");
-
     let (mut ws_sender, mut ws_receiver) = ws.split();
 
     tokio::task::spawn(async move {
@@ -82,6 +72,17 @@ async fn user_connected(ws: WebSocket, room_id: String, users: Users) {
                 .await;
         }
     });
+
+    let user_id = NEXT_USER_ID.fetch_add(1, Ordering::Relaxed);
+
+    let user_info = UserInfo {
+        room: room_id.clone(),
+        tx,
+    };
+
+    users.write().await.insert(user_id, user_info);
+
+    eprintln!("New chat user: {user_id} added to room: {room_id}");
 
     while let Some(result) = ws_receiver.next().await {
         let msg = match result {
@@ -105,10 +106,12 @@ async fn user_message(user_id: usize, msg: Message, users: &Users, room_id: &str
         return;
     };
 
-    let new_msg = format!("<User#{user_id}>: {msg}");
+    let new_msg = format!("<User#{user_id}>: {msg}\n");
+
+    write_to_file(room_id, &new_msg);
 
     for (&id, user_info) in users.read().await.iter() {
-        if id != user_id && user_info.room == room_id.to_string() {
+        if id != user_id && user_info.room == room_id {
             if let Err(_disconnected) = user_info.tx.send(Message::text(new_msg.clone())) {
                 // The tx is disconnected, our `user_disconnected` code
                 // should be happening in another task, nothing more to
@@ -118,7 +121,20 @@ async fn user_message(user_id: usize, msg: Message, users: &Users, room_id: &str
     }
 }
 
+fn write_to_file(room_id: &str, message: &str) {
+    let file_name = format!("{room_id}.log");
+    let mut reader: &[u8] = message.as_bytes();
+
+    let mut file = OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open(file_name)
+        .unwrap();
+
+    io::copy(&mut reader, &mut file).unwrap();
+}
+
 async fn user_disconnected(user_id: usize, users: &Users) {
-    eprintln!("good bye user: {user_id}");
+    eprintln!("goodbye user: {user_id}");
     users.write().await.remove(&user_id);
 }
