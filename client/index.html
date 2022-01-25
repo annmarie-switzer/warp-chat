@@ -5,28 +5,121 @@
         <link rel="icon" href="data:," />
 
         <style>
+            @import url('https://fonts.googleapis.com/css2?family=Roboto+Condensed&display=swap');
+
+            :root {
+                --red: #AE0001;
+                --gold: #EEBA30;
+                --green: #2A623D;
+                --silver: #AAAAAA;
+                --blue: #3962a0;
+                --black: #000000;
+            }
+            html,
             body {
-                background-color: #303030;
-                color: #dddddd;
+                margin: 0;
+                padding: 0;
+                height: 100vh;
+                width: 100vw;
+                background-color: #000;
+                color: #ddd ;
+                font-family: 'Roboto Condensed', sans-serif;
+                font-size: 16px;
+                display: flex;
+            }
+
+            #page-container {
+                flex: auto;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+            }
+
+            #page-title {
+                padding: 0.5rem 1rem;
+                box-sizing: border-box;
+                width: 100%;
+                font-size: 1.5rem;
+            }
+
+            #main {
+                flex: auto;
+                width: 100%;
+                display: flex;
+            }
+
+            a {
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                text-decoration: none;
+                color: inherit;
+                font-size: 2rem;
+            }
+
+            a:hover {
+                text-decoration: underline;
+            }
+
+            @media screen and (min-width: 769px) {
+                #main {
+                    flex-wrap: nowrap;
+                }
+
+                a {
+                    flex: auto;
+                }
+            }
+
+            @media screen and (max-width: 768px) {
+                #main {
+                    flex-wrap: wrap;
+                }
+
+                a {
+                    width: 100%;
+                }
+            }
+
+            #gryffindor {
+                background-color: var(--red);
+                color: var(--gold);
+            }
+
+            #slytherin {
+                background-color: var(--green);
+                color: var(--silver);
+            }
+
+            #hufflepuff {
+                background-color: var(--gold);
+                color: var(--black);
+            }
+
+            #ravenclaw {
+                background-color: var(--blue);
+                color: var(--silver);
             }
         </style>
     </head>
     <body>
-        <h1>Select a chat room</h1>
+        <div id="page-container">
+            <div id="page-title">Select a Chat Room</div>
 
-        <ul>
-            <li>
-                <a href="http://localhost:3030/chat/gryffindor">Gryffindor</a>
-            </li>
-            <li>
-                <a href="http://localhost:3030/chat/hufflepuff">Hufflepuff</a>
-            </li>
-            <li>
-                <a href="http://localhost:3030/chat/ravenclaw">Ravenclaw</a>
-            </li>
-            <li>
-                <a href="http://localhost:3030/chat/slytherin">Slytherin</a>
-            </li>
-        </ul>
+            <div id="main">
+                <a id="gryffindor" href="http://localhost:3030/chat/gryffindor">
+                    Gryffindor
+                </a>
+                <a id="slytherin" href="http://localhost:3030/chat/slytherin">
+                    Slytherin
+                </a>
+                <a id="hufflepuff" href="http://localhost:3030/chat/hufflepuff">
+                    Hufflepuff
+                </a>
+                <a id="ravenclaw" href="http://localhost:3030/chat/ravenclaw">
+                    Ravenclaw
+                </a>
+            </div>
+        </div>
     </body>
 </html>
