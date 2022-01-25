@@ -1,4 +1,5 @@
 use futures_util::{SinkExt, StreamExt, TryFutureExt};
+use std::collections::HashMap;
 use std::env;
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
@@ -9,15 +10,14 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 use warp::ws::{Message, WebSocket};
 use warp::Filter;
 
-struct User {
-    id: usize,
+static NEXT_USER_ID: AtomicUsize = AtomicUsize::new(1);
+
+struct UserInfo {
     room: String,
     tx: mpsc::UnboundedSender<Message>,
 }
 
-static NEXT_USER_ID: AtomicUsize = AtomicUsize::new(1);
-
-type Users = Arc<RwLock<Vec<User>>>;
+type Users = Arc<RwLock<HashMap<usize, UserInfo>>>;
 
 #[tokio::main]
 async fn main() {
@@ -29,7 +29,6 @@ async fn main() {
 
     let users = Users::default();
 
-    // custom filter
     let users = warp::any().map(move || users.clone());
 
     // Instantiates a websocket connection.
@@ -60,15 +59,14 @@ async fn user_connected(ws: WebSocket, room_id: String, users: Users) {
     let (tx, rx) = mpsc::unbounded_channel();
     let mut rx = UnboundedReceiverStream::new(rx);
 
-    // create and store a new `User`
     let user_id = NEXT_USER_ID.fetch_add(1, Ordering::Relaxed);
-    let new_user = User {
-        id: user_id,
+
+    let user_info = UserInfo {
         room: room_id.clone(),
         tx,
     };
 
-    users.write().await.push(new_user);
+    users.write().await.insert(user_id, user_info);
 
     eprintln!("New chat user: {user_id} added to room: {room_id}");
 
@@ -85,8 +83,6 @@ async fn user_connected(ws: WebSocket, room_id: String, users: Users) {
         }
     });
 
-    // When the websocket receives a message,
-    // broadcast it to the other users.
     while let Some(result) = ws_receiver.next().await {
         let msg = match result {
             Ok(msg) => msg,
@@ -111,9 +107,9 @@ async fn user_message(user_id: usize, msg: Message, users: &Users, room_id: &str
 
     let new_msg = format!("<User#{user_id}>: {msg}");
 
-    for user in users.read().await.iter() {
-        if user.id != user_id && user.room == room_id.to_string() {
-            if let Err(_disconnected) = user.tx.send(Message::text(new_msg.clone())) {
+    for (&id, user_info) in users.read().await.iter() {
+        if id != user_id && user_info.room == room_id.to_string() {
+            if let Err(_disconnected) = user_info.tx.send(Message::text(new_msg.clone())) {
                 // The tx is disconnected, our `user_disconnected` code
                 // should be happening in another task, nothing more to
                 // do here.
@@ -124,61 +120,5 @@ async fn user_message(user_id: usize, msg: Message, users: &Users, room_id: &str
 
 async fn user_disconnected(user_id: usize, users: &Users) {
     eprintln!("good bye user: {user_id}");
-    // TODO - use a hashmap? {user_id: {room, tx}}
-    users.write().await.retain(|u| u.id != user_id);
+    users.write().await.remove(&user_id);
 }
-
-// let index = warp::path!(usize).map(|_| warp::reply::html(INDEX_HTML));
-
-// static INDEX_HTML: &str = r#"
-// <!DOCTYPE html>
-// <html lang="en">
-//     <head>
-//         <title>Warp Chat</title>
-//         <link rel="icon" href="data:,">
-//     </head>
-//     <body>
-//         <h1>Warp chat</h1>
-
-//         <div id="chat">
-//             <p><em>Connecting...</em></p>
-//         </div>
-
-//         <input type="text" id="text" />
-
-//         <button type="button" id="send">Send</button>
-
-//         <script type="text/javascript">
-//             const chat = document.getElementById('chat');
-//             const text = document.getElementById('text');
-//             const uri = `ws://${location.host}/chat${location.pathname}`;
-//             const ws = new WebSocket(uri);
-
-//             function message(data) {
-//                 const line = document.createElement('p');
-//                 line.innerText = data;
-//                 chat.appendChild(line);
-//             }
-
-//             ws.onopen = function() {
-//                 chat.innerHTML = '<p><em>Connected!</em></p>';
-//             };
-
-//             ws.onmessage = function(msg) {
-//                 message(msg.data);
-//             };
-
-//             ws.onclose = function() {
-//                 chat.getElementsByTagName('em')[0].innerText = 'Disconnected!';
-//             };
-
-//             send.onclick = function() {
-//                 const msg = text.value;
-//                 ws.send(msg);
-//                 text.value = '';
-//                 message('<You>: ' + msg);
-//             };
-//         </script>
-//     </body>
-// </html>
-// "#;
