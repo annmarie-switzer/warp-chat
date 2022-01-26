@@ -1,6 +1,7 @@
 # warp-chat
 
 1. [Download and run the binary](https://github.com/annmarie-switzer/warp-chat/releases/tag/v.0.0.0-test)
+- Go to http://localhost:3030
 
 2. Install and run manually:
 - [Install Rust](https://www.rust-lang.org/tools/install)
