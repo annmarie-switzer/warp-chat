@@ -138,3 +138,20 @@ fn write_to_file(room_id: &str, message: &str) {
 
     io::copy(&mut reader, &mut file).unwrap();
 }
+
+#[cfg(test)]
+mod tests {
+    #[tokio::test]
+    async fn test_api() {
+        let chat = warp::path!("chat" / String);
+        
+        assert!(
+            warp::test::request()
+                .path("/chat/gryffindor")
+                .matches(&chat)
+                .await
+        );
+
+        assert!(!warp::test::request().path("/chat").matches(&chat).await);
+    }
+}
